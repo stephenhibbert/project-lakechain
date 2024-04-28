@@ -16,14 +16,20 @@
  * limitations under the License.
  */
 
+
 import * as cdk from 'aws-cdk-lib';
 import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as ec2 from 'aws-cdk-lib/aws-ec2';
 
 import { Construct } from 'constructs';
 import { CacheStorage } from '@project-lakechain/core';
 import { S3EventTrigger } from '@project-lakechain/s3-event-trigger';
 import { SharpImageTransform, sharp } from '@project-lakechain/sharp-image-transform';
 import { S3StorageConnector } from '@project-lakechain/s3-storage-connector';
+import { RekognitionImageProcessor, dsl as r } from '@project-lakechain/rekognition-image-processor';
+import { ImageLayerProcessor, dsl as l } from '@project-lakechain/image-layer-processor';
+import { ControlNetImageProcessor } from '@project-lakechain/controlnet-image-processor';
+import { Blip2ImageProcessor } from '@project-lakechain/blip2-image-processor';
 
 /**
  * Example stack for running transformations on images
@@ -44,6 +50,21 @@ export class ImageTransformsStack extends cdk.Stack {
     super(scope, id, {
       description: 'A pipeline applying transformations on images.',
       ...env
+    });
+
+    // Sample VPC.
+    const vpc = new ec2.Vpc(this, "VPC", {
+      subnetConfiguration: [{
+          subnetType: ec2.SubnetType.PUBLIC,
+          name: 'Public',
+        },{
+          subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
+          name: 'Private',
+        },{
+          subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
+          name: 'Isolated',
+        }
+      ]
     });
 
     ///////////////////////////////////////////
@@ -84,6 +105,20 @@ export class ImageTransformsStack extends cdk.Stack {
       .withBucket(source)
       .build();
 
+
+    // The Rekognition image processor will
+    // identify objects in processed images.
+    const rekognition = new RekognitionImageProcessor.Builder()
+    .withScope(this)
+    .withIdentifier('Rekognition')
+    .withCacheStorage(cache)
+    .withSource(trigger)
+    .withIntent(
+      r.detect()
+        .labels(r.confidence(50))
+    )
+    .build();
+
     // Create a Sharp transform which will :
     // - Resize images to a width of 500px
     // - Grayscale images
@@ -96,12 +131,21 @@ export class ImageTransformsStack extends cdk.Stack {
       .withSource(trigger)
       .withSharpTransforms(
         sharp()
-          .resize(500)
+          .resize(1024, 1024)
           .grayscale()
-          .flip()
           .png()
       )
       .build();
+
+      // Create the ControlNet image processor.
+    const controlnetProcessor = new ControlNetImageProcessor.Builder()
+      .withScope(this)
+      .withIdentifier('ImageProcessor')
+      .withCacheStorage(cache)
+      .withVpc(vpc)
+      .withSource(imageTransform) // 👈 Specify a data source
+    .build();
+    
 
     // Write the results to the destination bucket.
     new S3StorageConnector.Builder()
@@ -109,7 +153,7 @@ export class ImageTransformsStack extends cdk.Stack {
       .withIdentifier('S3StorageConnector')
       .withCacheStorage(cache)
       .withDestinationBucket(destination)
-      .withSource(imageTransform)
+      .withSources([imageTransform, controlnetProcessor, rekognition])
       .build();
 
     // Display the source bucket information in the console.

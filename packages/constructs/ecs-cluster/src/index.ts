@@ -219,6 +219,8 @@ export class EcsCluster extends Construct {
     const capacityProvider = new ecs.AsgCapacityProvider(this, 'CapacityProvider', {
       autoScalingGroup: new autoscaling.AutoScalingGroup(this, 'Asg', {
         vpc: this.props.vpc,
+        minHealthyPercentage: 50,
+        maxHealthyPercentage: 100,
         vpcSubnets: {
           subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS
         },
@@ -241,12 +243,14 @@ export class EcsCluster extends Construct {
       logging: ecs.LogDrivers.awsLogs({
         streamPrefix: this.props.containerProps.containerName,
         logGroup: this.props.logGroup
-      }),
+      }),      
       environment: {
         INPUT_QUEUE_URL: this.props.eventQueue.queueUrl,
         SNS_TARGET_TOPIC: this.props.eventBus.topicArn,
         CACHE_DIR: this.props.fileSystem?.containerPath ?? '/cache',
         AWS_DEFAULT_REGION: cdk.Stack.of(this).region,
+        ECS_CONTAINER_STOP_TIMEOUT: '2s',
+        ECS_IMAGE_PULL_BEHAVIOR: 'prefer-cached',
         ...this.props.containerProps.environment
       }
     });

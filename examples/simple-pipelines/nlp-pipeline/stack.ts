@@ -26,6 +26,8 @@ import { NlpTextProcessor, dsl as l } from '@project-lakechain/nlp-text-processo
 import { PdfTextConverter } from '@project-lakechain/pdf-text-converter';
 import { PandocTextConverter } from '@project-lakechain/pandoc-text-converter';
 import { S3StorageConnector } from '@project-lakechain/s3-storage-connector';
+import { AnthropicTextProcessor, AnthropicTextModel } from '@project-lakechain/bedrock-text-processors';
+import { RecursiveCharacterTextSplitter } from '@project-lakechain/recursive-character-text-splitter';
 
 /**
  * An example showcasing how to build a pipeline which
@@ -106,6 +108,51 @@ export class NlpStack extends cdk.Stack {
       .withCacheStorage(cache)
       .withSource(trigger)
       .build();
+    
+    // We are using the `AnthropicTextProcessor` component to summarize
+    // the input text.
+    const textSummarizer = new AnthropicTextProcessor.Builder()
+      .withScope(this)
+      .withIdentifier('AnthropicTextProcessor')
+      .withCacheStorage(cache)
+      .withSources([
+        pdfConverter,
+        pandocConverter,
+        trigger
+      ])
+      .withRegion('us-east-1')
+      .withModel(AnthropicTextModel.ANTHROPIC_CLAUDE_V3_HAIKU)
+      .withPrompt(`
+        Give a detailed summary of the text with the following constraints:
+        - Write a very detailed summary in the same language as the original text.
+        - Keep the original meaning, style, and tone of the text in the summary.
+        - Do not say "Here is a summary", just write the summary as is.
+        - If you cannot summarize the text, just return an empty string without explanation.
+      `)
+      .withModelParameters({
+        temperature: 0.5,
+        max_tokens: 4096
+      })
+      .build();
+
+    ///////////////////////////////////////////
+    //////////     Text Splitter     //////////
+    ///////////////////////////////////////////
+
+    // Split the text into chunks.
+    const textSplitter = new RecursiveCharacterTextSplitter.Builder()
+    .withScope(this)
+    .withIdentifier('RecursiveCharacterTextSplitter')
+    .withCacheStorage(cache)
+    .withChunkSize(4096)
+    .withSources([
+      trigger,
+      pdfConverter,
+      pandocConverter,
+      textSummarizer
+    ])
+    .build();
+
 
     // Extracts metadata from text documents.
     const nlpProcessor = new NlpTextProcessor.Builder()
@@ -119,10 +166,7 @@ export class NlpStack extends cdk.Stack {
       ])
       .withIntent(
         l.nlp()
-          .language()
-          .pii(l.confidence(0.9))
-          .entities(l.filter('PERSON'))
-          .pos(l.confidence(0.9), l.filter('ADJ', 'NOUN'))
+          .entities()
           .readingTime()
           .stats()
       )

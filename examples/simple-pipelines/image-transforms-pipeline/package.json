@@ -30,6 +30,10 @@
     "ts-node": "^10.9.2"
   },
   "dependencies": {
+    "@project-lakechain/blip2-image-processor": "*",
+    "@project-lakechain/controlnet-image-processor": "*",
+    "@project-lakechain/image-layer-processor": "*",
+    "@project-lakechain/rekognition-image-processor": "*",
     "@project-lakechain/s3-event-trigger": "*",
     "@project-lakechain/s3-storage-connector": "*",
     "@project-lakechain/sharp-image-transform": "*"
